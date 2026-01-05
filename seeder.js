@@ -43,11 +43,10 @@ const importData = async () => {
         // ---------------------------------------------------------
         // Bulk Student Generation
         // ---------------------------------------------------------
-        console.log('Seeding 10 Students per Department...');
+        console.log('Seeding Students for multiple batches (All starting at Year 1)...');
 
         const departments = [
             { code: '01', name: 'CSE', mgmtFee: 220000 },
-            { code: '02', name: 'ISE', mgmtFee: 200000 },
             { code: '03', name: 'MECH', mgmtFee: 120000 },
             { code: '04', name: 'ECE', mgmtFee: 150000 },
             { code: '05', name: 'CIVIL', mgmtFee: 120000 }
@@ -58,134 +57,166 @@ const importData = async () => {
             "Diya", "Saanvi", "Ananya", "Aadhya", "Pari", "Anika", "Navya", "Angel", "Shruti", "Riya",
             "Manish", "Rahul", "Priya", "Sneha", "Karthik", "Deepak", "Sanjay", "Vikram", "Neha", "Pooja",
             "Rohan", "Suresh", "Ramesh", "Gita", "Sita", "Lakshmi", "Bhavya", "Divya", "Swati", "Kavya",
-            "Arun", "Varun", "Tarun", "Kiran", "Suman", "Amit", "Sumit", "Anil", "Sunil", "Raj"
+            "Arun", "Varun", "Tarun", "Kiran", "Suman", "Amit", "Sumit", "Anil", "Sunil", "Raj",
+            "Nikhil", "Akash", "Vikas", "Vishal", "Ashish", "Abhishek", "Rakesh", "Mukesh", "Naresh", "Suresh"
         ];
 
         const lastNames = [
             "Sharma", "Verma", "Gupta", "Malhotra", "Bhat", "Rao", "Reddy", "Nair", "Patel", "Mehta",
             "Singh", "Yadav", "Kumar", "Das", "Banerjee", "Chatterjee", "Iyer", "Gowda", "Hegde", "Shetty",
-            "Desai", "Joshi", "Kulkarni", "Naik", "Kamath", "Prabhu", "Shenoy", "Pai", "Acharya", "Bhandary"
+            "Desai", "Joshi", "Kulkarni", "Naik", "Kamath", "Prabhu", "Shenoy", "Pai", "Acharya", "Bhandary",
+            "Jain", "Agarwal", "Mishra", "Dubey", "Pandey", "Tiwari", "Chopra", "Kapoor", "Khan", "Ali"
         ];
 
         const getRandomName = () => `${firstNames[Math.floor(Math.random() * firstNames.length)]} ${lastNames[Math.floor(Math.random() * lastNames.length)]}`;
+
         const getRandomBook = (dept) => {
             const common = ["Engineering Mathematics", "Constitution of India", "Environmental Studies"];
             const specific = {
-                'CSE': ["C Programming", "Data Structures", "Operating Systems"],
-                'ISE': ["File Structures", "Unix Programming", "Web Technology"],
-                'ECE': ["Analog Circuits", "Digital Electronics", "Signal Processing"],
-                'MECH': ["Thermodynamics", "Fluid Mechanics", "Kinematics"],
-                'CIVIL': ["Strength of Materials", "Surveying", "Concrete Technology"]
+                'CSE': ["C Programming", "Data Structures", "Operating Systems", "Algorithms", "Database Management"],
+                'ISE': ["File Structures", "Unix Programming", "Web Technology", "Software Architectures", "Cloud Computing"],
+                'ECE': ["Analog Circuits", "Digital Electronics", "Signal Processing", "Communication Systems", "VLSI"],
+                'MECH': ["Thermodynamics", "Fluid Mechanics", "Kinematics", "Machine Design", "Heat Transfer"],
+                'CIVIL': ["Strength of Materials", "Surveying", "Concrete Technology", "Geotech", "Hydraulics"]
             };
             const pool = [...common, ...(specific[dept] || [])];
             return pool[Math.floor(Math.random() * pool.length)];
         };
 
-        const currentYear = 1;
+        const batchConfigs = [
+            { batch: '2022-2026', currentYear: 1, usnPrefix: '22' },
+            { batch: '2023-2027', currentYear: 1, usnPrefix: '23' },
+            { batch: '2024-2028', currentYear: 1, usnPrefix: '24' },
+            { batch: '2025-2029', currentYear: 1, usnPrefix: '25' }
+        ];
+
         const trainingFee = 15000;
+        const admissionFee = 5000;
 
-        for (const dept of departments) {
-            console.log(`Generating students for ${dept.name}...`);
+        for (const config of batchConfigs) {
+            console.log(`Generating students for Batch ${config.batch} (Starting at Year 1)...`);
 
-            for (let i = 1; i <= 10; i++) {
-                // Determine Quota & Attributes based on index to ensure variety
-                // 1-4: Gov Free, 5-6: Gov Paid, 7-9: Mgmt, 10: NRI
-                let quota = 'government';
-                let collegeFee = 0;
+            const batchUSNCode = config.usnPrefix;
 
-                if (i <= 4) {
-                    quota = 'government';
-                    collegeFee = 0;
-                } else if (i <= 6) {
-                    quota = 'government';
-                    collegeFee = 45000;
-                } else if (i <= 9) {
-                    quota = 'management';
-                    collegeFee = dept.mgmtFee;
-                } else {
-                    quota = 'nri';
-                    collegeFee = dept.mgmtFee * 2.5;
-                }
+            for (const dept of departments) {
+                // console.log(`  - Processing ${dept.name}...`);
 
-                // Randomize Hostel/Transport
-                const transportOpted = Math.random() > 0.5;
-                const hostelOpted = !transportOpted && Math.random() > 0.3; // If not transport, likely hostel
+                for (let i = 1; i <= 25; i++) { // 25 students per dept per batch
+                    // Determine Quota & Attributes based on index for balanced variety
+                    let quota = 'government';
+                    let collegeFee = 0;
 
-                const transportFee = transportOpted ? (25000 + Math.floor(Math.random() * 10) * 1000) : 0;
-                const hostelFee = hostelOpted ? (75000 + Math.floor(Math.random() * 40) * 1000) : 0;
+                    if (i <= 8) {
+                        quota = 'government';
+                        collegeFee = 0; // Eligible
+                    } else if (i <= 13) {
+                        quota = 'government';
+                        collegeFee = 45000; // Not Eligible
+                    } else if (i <= 23) {
+                        quota = 'management';
+                        collegeFee = dept.mgmtFee;
+                    } else {
+                        quota = 'nri';
+                        collegeFee = dept.mgmtFee * 2.5;
+                    }
 
-                const serial = i.toString().padStart(2, '0');
-                const usn = `25221A${dept.code}${serial}`; // e.g., 25221A0401
-                const name = getRandomName();
+                    // Randomize Hostel/Transport (Mutually Exclusive)
+                    const randLogistics = Math.random();
+                    let transportOpted = false;
+                    let hostelOpted = false;
 
-                // Create User
-                const user = await User.create({
-                    username: usn,
-                    password: '123',
-                    role: 'student',
-                    name: name,
-                    email: `${name.toLowerCase().replace(/\s/g, '.')}@bvce.edu`
-                });
+                    if (randLogistics < 0.4) {
+                        transportOpted = true;
+                    } else if (randLogistics < 0.7) {
+                        hostelOpted = true;
+                    }
 
-                // Fee Records (Split by Sem)
-                const feeRecords = [];
-                const addFeeLog = (type, amount) => {
-                    const split = Math.ceil(amount / 2);
-                    feeRecords.push({ year: currentYear, semester: 1, feeType: type, amountDue: split, amountPaid: 0, status: 'pending' });
-                    feeRecords.push({ year: currentYear, semester: 2, feeType: type, amountDue: amount - split, amountPaid: 0, status: 'pending' });
-                };
+                    const transportFee = transportOpted ? (25000 + Math.floor(Math.random() * 10) * 1000) : 0;
+                    const hostelFee = hostelOpted ? (75000 + Math.floor(Math.random() * 40) * 1000) : 0;
 
-                if (collegeFee > 0) addFeeLog('college', collegeFee);
-                if (transportOpted) addFeeLog('transport', transportFee);
-                if (hostelOpted) addFeeLog('hostel', hostelFee);
-                addFeeLog('placement', trainingFee);
+                    // Some students have admission fee (e.g. 50%)
+                    const hasAdmissionFee = Math.random() > 0.5;
+                    const finalAdmissionFee = hasAdmissionFee ? admissionFee : 0;
 
-                const student = await Student.create({
-                    user: user._id,
-                    usn: usn,
-                    department: dept.name,
-                    currentYear: currentYear,
-                    quota: quota,
-                    entry: 'regular',
-                    status: 'active',
+                    const serial = i.toString().padStart(3, '0'); // 001, 002...
+                    // Format: 25 + usnPrefix + 1A + code + serial
+                    const usn = `25${batchUSNCode}1A${dept.code}${serial}`;
+                    const name = getRandomName();
 
-                    transportOpted,
-                    transportRoute: transportOpted ? ['Majestic', 'Silk Board', 'Whitefield', 'Kengeri'][Math.floor(Math.random() * 4)] : '',
-                    hostelOpted,
-                    placementOpted: true,
+                    // Create User
+                    const user = await User.create({
+                        username: usn,
+                        password: '123',
+                        role: 'student',
+                        name: name,
+                        email: `${name.toLowerCase().replace(/\s/g, '.')}@bvce.edu`
+                    });
 
-                    annualCollegeFee: collegeFee,
-                    annualTransportFee: transportFee,
-                    annualHostelFee: hostelFee,
-                    annualPlacementFee: trainingFee,
+                    // Fee Records (Split by Sem) - STARTING YEAR 1 for ALL
+                    const feeRecords = [];
+                    const addFeeLog = (type, amount) => {
+                        if (amount <= 0) return;
+                        const split = Math.ceil(amount / 2);
+                        // Always Sem 1 and 2 because we forced currentYear = 1
+                        feeRecords.push({ year: 1, semester: 1, feeType: type, amountDue: split, amountPaid: 0, status: 'pending' });
+                        feeRecords.push({ year: 1, semester: 2, feeType: type, amountDue: amount - split, amountPaid: 0, status: 'pending' });
+                    };
 
-                    collegeFeeDue: collegeFee,
-                    transportFeeDue: transportFee,
-                    hostelFeeDue: hostelFee,
-                    placementFeeDue: trainingFee,
+                    // Add Fee Logs
+                    if (collegeFee > 0) addFeeLog('college', collegeFee);
+                    if (transportOpted) addFeeLog('transport', transportFee);
+                    if (hostelOpted) addFeeLog('hostel', hostelFee);
+                    addFeeLog('placement', trainingFee); // All students have training fee
+                    if (finalAdmissionFee > 0) addFeeLog('other', finalAdmissionFee); // 'other' for admission/misc
 
-                    feeRecords: feeRecords
-                });
+                    const student = await Student.create({
+                        user: user._id,
+                        usn: usn,
+                        department: dept.name,
+                        batch: config.batch,
+                        currentYear: 1, // FORCE YEAR 1
+                        quota: quota,
+                        entry: 'regular',
+                        status: 'active',
 
-                // Random Library Books (50% chance)
-                if (Math.random() > 0.5) {
-                    const bookCount = Math.floor(Math.random() * 3) + 1;
-                    for (let b = 1; b <= bookCount; b++) {
-                        await LibraryRecord.create({
-                            student: student._id,
-                            usn: usn,
-                            bookTitle: getRandomBook(dept.name),
-                            bookId: `LIB-${usn.slice(-4)}-${b}`,
-                            borrowedDate: new Date(),
-                            dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
-                            status: 'borrowed'
-                        });
+                        transportOpted,
+                        transportRoute: transportOpted ? ['Majestic', 'Silk Board', 'Whitefield', 'Kengeri', 'Hebbal', 'Yelahanka'][Math.floor(Math.random() * 6)] : '',
+                        hostelOpted,
+                        placementOpted: true, // Everyone has placement
+
+                        annualCollegeFee: collegeFee,
+                        annualTransportFee: transportFee,
+                        annualHostelFee: hostelFee,
+                        annualPlacementFee: trainingFee,
+
+                        collegeFeeDue: collegeFee,
+                        transportFeeDue: transportFee,
+                        hostelFeeDue: hostelFee,
+                        placementFeeDue: trainingFee,
+
+                        feeRecords: feeRecords
+                    });
+
+                    // Random Library Books (70% chance)
+                    if (Math.random() > 0.3) {
+                        const bookCount = Math.floor(Math.random() * 3) + 1; // 1 to 3 books
+                        for (let b = 1; b <= bookCount; b++) {
+                            await LibraryRecord.create({
+                                student: student._id,
+                                usn: usn,
+                                bookTitle: getRandomBook(dept.name),
+                                bookId: `LIB-${usn.slice(-4)}-${b}`,
+                                borrowedDate: new Date(),
+                                dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // 2 weeks due
+                                status: 'borrowed'
+                            });
+                        }
                     }
                 }
             }
         }
 
-        console.log('Seeder completed successfully: 10 Students per Department generated.');
+        console.log('Seeder completed successfully. All batches generated at Year 1.');
         process.exit();
     } catch (error) {
         console.error(`Error: ${error.message}`);

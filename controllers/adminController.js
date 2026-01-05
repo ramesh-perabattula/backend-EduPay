@@ -10,7 +10,7 @@ const Payment = require('../models/Payment');
 const createStudent = async (req, res) => {
     try {
         const {
-            username, password, name, department, currentYear,
+            username, password, name, department, currentYear, batch,
             quota, entry, email,
             transportOpted, // Boolean
             assignedCollegeFee, // For Management Quota
@@ -50,6 +50,7 @@ const createStudent = async (req, res) => {
             user: user._id,
             usn: username,
             department,
+            batch,
             currentYear: Number(currentYear),
             quota,
             entry,
@@ -362,9 +363,46 @@ const searchStudent = async (req, res) => {
 // @route   POST /api/admin/notifications
 const createExamNotification = async (req, res) => {
     try {
-        const { title, year, semester, examFeeAmount, startDate, endDate, description, examType } = req.body;
+        // Changed to targetBatches (array)
+        const { title, year, targetBatches, semester, examFeeAmount, startDate, endDate, description, examType } = req.body;
+
+        // --- VALIDATION: STRICT BATCH EXISTENCE & HIERARCHY ---
+        if (targetBatches && targetBatches.length > 0) {
+            const dateObj = new Date(startDate);
+            const notifYear = dateObj.getFullYear();
+            // Academic Year Start (Aug-Dec belongs to Year, Jan-May belongs to Prev Year)
+            // Actually, usually academic year is 2025-26.
+            // If Jan 2026, it is part of 2025-26. Start is 2025.
+            const acadYearStart = dateObj.getMonth() < 7 ? notifYear - 1 : notifYear;
+
+            // The 'Regular' batch for Year X starts at: AcadYearStart - (ExamYear - 1)
+            const regularBatchStart = acadYearStart - (year - 1);
+
+            for (const batch of targetBatches) {
+                const batchStart = parseInt(batch.split('-')[0]);
+
+                // 1. Check if Batch exists in reality
+                // Batch starts in Aug `batchStart`. Notif is in `acadYearStart`.
+                // If batchStart > acadYearStart, it's a FUTURE batch.
+                if (batchStart > acadYearStart) {
+                    return res.status(400).json({
+                        message: `Invalid Batch ${batch}: This batch does not exist in ${notifYear}.`
+                    });
+                }
+
+                // 2. Check Hierarchy (Juniors cannot take Senior Exams)
+                // If batchStart > regularBatchStart, it implies they are a Junior batch.
+                if (batchStart > regularBatchStart) {
+                    return res.status(400).json({
+                        message: `Invalid Batch ${batch}: Lower-year students cannot take Year ${year} exams.`
+                    });
+                }
+            }
+        }
+        // -----------------------------------------------------
+
         const notification = await ExamNotification.create({
-            title, year, semester, examFeeAmount, startDate, endDate, description, examType,
+            title, year, targetBatches, semester, examFeeAmount, startDate, endDate, description, examType,
             lastDateWithoutFine: endDate, // Set initial fine deadline to endDate
             lateFee: 0
         });
@@ -428,11 +466,29 @@ const getExamNotifications = async (req, res) => {
             const student = await Student.findOne({ user: req.user._id });
             if (student) {
                 const currentYear = student.currentYear;
-                query.$or = [
-                    { examType: 'regular', year: currentYear },
-                    { examType: 'supplementary', year: { $lte: currentYear } },
-                    { examType: { $exists: false }, year: currentYear } // Backward compat
+                // Match by Year AND Batch (if batch exists in student and notification)
+                // VISIBILITY RULES (Strict Enforcement):
+                // 1. Regular: Notification is explicitly for my batch (targetBatches must contain my batch)
+                // 2. Supplementary: Notification is for a lower year (Exam Year < My Current Year)
+                // 3. Safety: Notification Year MUST be <= My Current Year (Never show future exams)
+
+                query.$and = [
+                    {
+                        $or: [
+                            // Explicit Selection (Regular or Explicit Supple)
+                            { targetBatches: { $in: [student.batch] } },
+
+                            // Implicit Supplementary Rule: If I'm strictly senior to the exam year, I can see it.
+                            // e.g. Year 2 Student sees Year 1 Exam.
+                            { year: { $lt: currentYear } }
+                        ]
+                    },
+                    {
+                        // STRICT SAFETY: Never show an exam meant for a higher year (e.g. Year 1 student cannot see Year 2 exam)
+                        year: { $lte: currentYear }
+                    }
                 ];
+
                 if (isActive === undefined) query.isActive = true;
             }
         }
@@ -779,117 +835,125 @@ const getAnalytics = async (req, res) => {
                         {
                             $group: {
                                 _id: groupBy,
-                                // Metrics (Counts or Sums based on requested type? No, raw breakdown usually student counts for summary)
-                                // If type is 'all', we usually want student counts.
-                                // If type is specific, we want sums. 
-                                // Actually, let's just calculate SUMS for everything here to be safe and versatile
-                                fullyPaidCount: { $sum: { $cond: [{ $eq: ["$totalStudentDue", 0] }, 1, 0] } },
-                                pendingCount: { $sum: { $cond: [{ $gt: ["$totalStudentDue", 0] }, 1, 0] } },
-
-                                // Specific Fees
-                                collegeDue: { $sum: "$collegeDue" },
-                                collegePaid: { $sum: { $subtract: ["$annualCollege", "$collegeDue"] } },
-                                transportDue: { $sum: "$transportDue" },
-                                transportPaid: { $sum: { $subtract: ["$annualTransport", "$transportDue"] } },
-                                hostelDue: { $sum: "$hostelDue" },
-                                hostelPaid: { $sum: { $subtract: ["$annualHostel", "$hostelDue"] } },
-                                placementDue: { $sum: "$placementDue" },
-                                placementPaid: { $sum: { $subtract: ["$annualPlacement", "$placementDue"] } }
+                                // Metrics
+                                totalCollegeDue: { $sum: "$collegeDue" },
+                                totalCollegeAnnual: { $sum: "$annualCollege" },
+                                totalTransportDue: { $sum: "$transportDue" },
+                                totalTransportAnnual: { $sum: "$annualTransport" },
+                                totalHostelDue: { $sum: "$hostelDue" },
+                                totalHostelAnnual: { $sum: "$annualHostel" },
+                                totalPlacementDue: { $sum: "$placementDue" },
+                                totalPlacementAnnual: { $sum: "$annualPlacement" },
+                                count: { $sum: 1 }
                             }
-                        },
-                        { $sort: { _id: 1 } }
+                        }
                     ]
                 }
             }
         ]);
 
-        const overallStats = stats[0].overall[0] || {};
-        const rawBreakdown = stats[0].breakdown || [];
+        const overallStats = stats[0].overall[0] || {
+            totalStudents: 0, totalCollegeDue: 0, totalCollegeAnnual: 0,
+            totalTransportDue: 0, totalTransportAnnual: 0,
+            totalHostelDue: 0, totalHostelAnnual: 0,
+            totalPlacementDue: 0, totalPlacementAnnual: 0
+        };
 
+        const breakdown = stats[0].breakdown;
+
+        // Calculate Totals based on Type Filter
+        let totalCollected = 0;
+        let totalPending = 0;
         let formattedBreakdown = [];
 
-        // --- PIVOT LOGIC: If Specific Department is Selected ---
-        // If user selects a specific department, they usually want to see the FEE STRUCTURE breakdown (Academic vs Hostel etc)
-        // rather than 'Year 1, Year 2' (though that is also valid).
-        // Based on request "fees tabs only shown if all selected", we PIVOT the overall stats to show Component Breakdown.
+        // Helper
+        const getMetrics = (item, feeType) => {
+            if (feeType === 'college') return { due: item.totalCollegeDue, annual: item.totalCollegeAnnual };
+            if (feeType === 'transport') return { due: item.totalTransportDue, annual: item.totalTransportAnnual };
+            if (feeType === 'hostel') return { due: item.totalHostelDue, annual: item.totalHostelAnnual };
+            if (feeType === 'placement') return { due: item.totalPlacementDue, annual: item.totalPlacementAnnual };
+            // Default 'all' - Sum of all
+            const due = item.totalCollegeDue + item.totalTransportDue + item.totalHostelDue + item.totalPlacementDue;
+            const annual = item.totalCollegeAnnual + item.totalTransportAnnual + item.totalHostelAnnual + item.totalPlacementAnnual;
+            return { due, annual };
+        };
 
-        if (department !== 'all' && type !== 'exam') {
-            // Pivot the Overall Totals into Rows
-            formattedBreakdown = [
-                {
-                    label: 'Academic',
-                    fullyPaid: Math.max(0, (overallStats.totalCollegeAnnual || 0) - (overallStats.totalCollegeDue || 0)),
-                    pending: overallStats.totalCollegeDue || 0
-                },
-                {
-                    label: 'Transport',
-                    fullyPaid: Math.max(0, (overallStats.totalTransportAnnual || 0) - (overallStats.totalTransportDue || 0)),
-                    pending: overallStats.totalTransportDue || 0
-                },
-                {
-                    label: 'Hostel',
-                    fullyPaid: Math.max(0, (overallStats.totalHostelAnnual || 0) - (overallStats.totalHostelDue || 0)),
-                    pending: overallStats.totalHostelDue || 0
-                },
-                {
-                    label: 'Training',
-                    fullyPaid: Math.max(0, (overallStats.totalPlacementAnnual || 0) - (overallStats.totalPlacementDue || 0)),
-                    pending: overallStats.totalPlacementDue || 0
-                }
-            ];
-        } else {
-            // Standard Grouping (By Department usually)
-            // If type='all' (Student Status), we use counts. If type='college', we use financial.
+        const overallMetrics = getMetrics(overallStats, type);
+        totalPending = overallMetrics.due;
+        totalCollected = overallMetrics.annual - overallMetrics.due; // Rough estimate of collected
 
-            formattedBreakdown = rawBreakdown.map(item => {
-                let label = item._id;
-                if (groupBy === "$currentYear") label = `Year ${item._id}`;
+        // Format Breakdown Logic
+        // If 'All Depts' selected, we want to ensure we have entries for all departments (CSE, etc.) even if 0
+        // If 'Specific Dept' selected, we have just one entry or year-wise entries
 
-                let paid = 0;
-                let pending = 0;
+        let expectedKeys = [];
+        if (department === 'all') expectedKeys = ['CSE', 'ISE', 'ECE', 'MECH', 'CIVIL']; // Note: ISE removed from seeder but might exist in old data
+        else if (year === 'all') expectedKeys = [1, 2, 3, 4];
+        else expectedKeys = ["Summary"];
 
-                if (type === 'all') { // Student Counts
-                    paid = item.fullyPaidCount;
-                    pending = item.pendingCount;
-                } else { // Specific Fees (Financials)
-                    paid = item[`${type}Paid`] || 0;
-                    pending = item[`${type}Due`] || 0;
-                }
+        let breakdownMap = {};
+        breakdown.forEach(item => {
+            breakdownMap[item._id] = item;
+        });
 
-                return {
-                    label: label || 'Unknown',
-                    fullyPaid: paid,
-                    pending: pending
-                };
+        expectedKeys.forEach(key => {
+            const item = breakdownMap[key] || {
+                totalCollegeDue: 0, totalCollegeAnnual: 0,
+                totalTransportDue: 0, totalTransportAnnual: 0,
+                totalHostelDue: 0, totalHostelAnnual: 0,
+                totalPlacementDue: 0, totalPlacementAnnual: 0,
+                count: 0
+            };
+            const metrics = getMetrics(item, type);
+            formattedBreakdown.push({
+                label: (department !== 'all' && year === 'all' && key !== 'Summary') ? `Year ${key}` : key,
+                activeStudents: item.count,
+                pending: metrics.due,
+                fullyPaid: Math.max(0, metrics.annual - metrics.due)
             });
-        }
+        });
 
-        res.json({ ...overallStats, breakdown: formattedBreakdown });
+        res.json({
+            totalStudents: overallStats.count || 0,
+
+            totalCollegeDue: overallStats.totalCollegeDue || 0,
+            totalCollegeAnnual: overallStats.totalCollegeAnnual || 0,
+
+            totalTransportDue: overallStats.totalTransportDue || 0,
+            totalTransportAnnual: overallStats.totalTransportAnnual || 0,
+
+            totalHostelDue: overallStats.totalHostelDue || 0,
+            totalHostelAnnual: overallStats.totalHostelAnnual || 0,
+
+            totalPlacementDue: overallStats.totalPlacementDue || 0,
+            totalPlacementAnnual: overallStats.totalPlacementAnnual || 0,
+
+            totalExamCollected: totalCollected,
+            totalExamPending: totalPending,
+            breakdown: formattedBreakdown
+        });
+
     } catch (error) {
-        console.error("Analytics Error:", error);
         res.status(500).json({ message: error.message });
     }
 };
 
-// @desc    Get All Students with Filters
+// @desc    Get All Students
 // @route   GET /api/admin/students
 const getStudents = async (req, res) => {
     try {
         const { department, year } = req.query;
-        let query = { status: 'active' };
+        let query = {};
 
         if (department && department !== 'all') {
             query.department = department;
         }
 
         if (year && year !== 'all') {
-            query.currentYear = Number(year);
+            query.currentYear = parseInt(year);
         }
 
-        const students = await Student.find(query)
-            .populate('user', 'name email')
-            .sort({ usn: 1 });
-
+        const students = await Student.find(query).populate('user', 'name email');
         res.json(students);
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -898,13 +962,14 @@ const getStudents = async (req, res) => {
 
 module.exports = {
     createStudent,
+    searchStudent,
     updateStudentFees,
     setGovFee,
     getSystemConfig,
-    searchStudent,
     createExamNotification,
     updateExamNotification,
     deleteExamNotification,
+    // Verified: updateExamNotification does not allow editing targetBatches, so no validation needed here.
     getExamNotifications,
     getDashboardStats,
     getStudentsByYear,

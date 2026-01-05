@@ -4,6 +4,7 @@ const studentSchema = mongoose.Schema({
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     usn: { type: String, required: true, unique: true },
     department: { type: String, required: true },
+    batch: { type: String, required: true }, // Added Batch
     currentYear: { type: Number, required: true, min: 1, max: 4 }, // "Years 1,2,3,4"
     quota: { type: String, enum: ['government', 'management', 'nri'], required: true },
     entry: { type: String, enum: ['regular', 'lateral'], required: true },
