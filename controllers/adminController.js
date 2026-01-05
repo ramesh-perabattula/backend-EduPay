@@ -3,13 +3,10 @@ const Student = require('../models/Student');
 const ExamNotification = require('../models/ExamNotification');
 const SystemConfig = require('../models/SystemConfig');
 const LibraryRecord = require('../models/LibraryRecord');
+const Payment = require('../models/Payment');
 
 // @desc    Create a new student with user profile
 // @route   POST /api/admin/students
-// @access  Private (Admin)
-// @desc    Create a new student with user profile
-// @route   POST /api/admin/students
-// @access  Private (Admin)
 const createStudent = async (req, res) => {
     try {
         const {
@@ -70,7 +67,6 @@ const createStudent = async (req, res) => {
 
 // @desc    Update Student Fees
 // @route   PUT /api/admin/students/:usn/fees
-// @access  Private (Admin)
 const updateStudentFees = async (req, res) => {
     try {
         const {
@@ -232,10 +228,6 @@ const updateStudentFees = async (req, res) => {
 
 // @desc    Set Default Government Fee (And Apply)
 // @route   POST /api/admin/config/gov-fee
-// @access  Private (Admin)
-// @desc    Set Default Government Fee (And Apply)
-// @route   POST /api/admin/config/gov-fee
-// @access  Private (Admin)
 const setGovFee = async (req, res) => {
     try {
         const { quota, currentYear, amount, usn } = req.body;
@@ -248,8 +240,6 @@ const setGovFee = async (req, res) => {
         const year = Number(currentYear);
         const semA = (year * 2) - 1;
         const semB = year * 2;
-        const splitFee = Math.ceil(newAmount / 2);
-
         // Helper to update/add semester records
         const updateSemesterRecords = (student, totalFee) => {
             const amountA = Math.ceil(totalFee / 2);
@@ -370,7 +360,6 @@ const searchStudent = async (req, res) => {
 
 // @desc    Create Exam Notification
 // @route   POST /api/admin/notifications
-// @access  Private (Admin)
 const createExamNotification = async (req, res) => {
     try {
         const { title, year, semester, examFeeAmount, startDate, endDate, description, examType } = req.body;
@@ -387,7 +376,6 @@ const createExamNotification = async (req, res) => {
 
 // @desc    Update Exam Notification (Extend Date / Add Penalty)
 // @route   PUT /api/admin/notifications/:id
-// @access  Private (Exam Head)
 const updateExamNotification = async (req, res) => {
     try {
         const { endDate, lateFee, isActive } = req.body;
@@ -401,9 +389,6 @@ const updateExamNotification = async (req, res) => {
         if (lateFee !== undefined) notification.lateFee = Number(lateFee);
         if (isActive !== undefined) notification.isActive = isActive;
 
-        // If extending, we do NOT change lastDateWithoutFine automatically unless requested
-        // The logic is: Original End Date remains "Last Date Without Fine" if we are extending "With Penalty"
-
         const updatedNotification = await notification.save();
         res.json(updatedNotification);
     } catch (error) {
@@ -413,7 +398,6 @@ const updateExamNotification = async (req, res) => {
 
 // @desc    Delete Exam Notification
 // @route   DELETE /api/admin/notifications/:id
-// @access  Private (Exam Head)
 const deleteExamNotification = async (req, res) => {
     try {
         const notification = await ExamNotification.findById(req.params.id);
@@ -431,7 +415,6 @@ const deleteExamNotification = async (req, res) => {
 
 // @desc    Get Active Notifications
 // @route   GET /api/admin/notifications
-// @access  Public (or Private)
 const getExamNotifications = async (req, res) => {
     try {
         const { isActive } = req.query;
@@ -441,30 +424,18 @@ const getExamNotifications = async (req, res) => {
             query.isActive = isActive === 'true';
         }
 
-        // If user is logged in (req.user exists due to protect middleware usually, but this route might be semi-public)
-        // If it's a student, we apply visibility logic.
         if (req.user && req.user.role === 'student') {
             const student = await Student.findOne({ user: req.user._id });
             if (student) {
                 const currentYear = student.currentYear;
-
-                // LOGIC:
-                // 1. Regular Exams: Must match student's current year exactly.
-                // 2. Supplementary Exams: Visible if Notification Year <= Student Current Year.
-                //    (e.g., Year 1 Supply is visible to Year 1, 2, 3, 4)
-
                 query.$or = [
                     { examType: 'regular', year: currentYear },
                     { examType: 'supplementary', year: { $lte: currentYear } },
                     { examType: { $exists: false }, year: currentYear } // Backward compat
                 ];
-                // Ensure we only get active ones for students regardless of query param usually, 
-                // but let's respect the query param if passed, otherwise default to active.
                 if (isActive === undefined) query.isActive = true;
             }
         }
-
-        // If admin/others, they see everything based on query.
 
         const notifications = await ExamNotification.find(query).sort({ createdAt: -1 });
         res.json(notifications);
@@ -475,7 +446,6 @@ const getExamNotifications = async (req, res) => {
 
 // @desc    Get Stats for Dashboard
 // @route   GET /api/admin/stats
-// @access  Private (Admin/Principal)
 const getDashboardStats = async (req, res) => {
     try {
         const totalStudents = await Student.countDocuments();
@@ -507,7 +477,6 @@ const getDashboardStats = async (req, res) => {
 
 // @desc    Get Students by Year
 // @route   GET /api/admin/students/year/:year
-// @access  Private (Admin)
 const getStudentsByYear = async (req, res) => {
     try {
         const { year } = req.params;
@@ -522,7 +491,6 @@ const getStudentsByYear = async (req, res) => {
 
 // @desc    Promote Students
 // @route   POST /api/admin/students/promote
-// @access  Private (Admin)
 const promoteStudents = async (req, res) => {
     try {
         const { currentYear } = req.body;
@@ -665,82 +633,168 @@ const promoteStudents = async (req, res) => {
 };
 
 // @desc    Get Analytics Data
-// @route   GET /api/admin/analytics
-// @access  Private (Admin)
+// @route   GET /api/admin/analytics (Refined for specific fee types + Exam)
 const getAnalytics = async (req, res) => {
-    // console.log("Analytics Request Received:", req.query);
     try {
-        const { year, department } = req.query;
+        const { year, department, type } = req.query; // type: 'all', 'college', 'transport', 'hostel', 'placement', 'exam'
         let matchStage = { status: 'active' };
 
-        // Apply Filters
-        if (year && year !== 'all') {
-            matchStage.currentYear = Number(year);
-        }
+        // Apply Filters (Common)
+        if (year && year !== 'all') matchStage.currentYear = Number(year);
+        if (department && department !== 'all') matchStage.department = department;
 
-        if (department && department !== 'all') {
-            matchStage.department = department; // Exact match (e.g., 'CSE', 'ECE')
-        }
-
-        // Determine Facet Logic for Breakdown
-        let groupBy = "$department"; // Default: Group by Department
+        // Grouping Logic
+        let groupBy = "$department";
         let labelPrefix = "";
 
+        // If showing Exam fees, we handle it separately (mostly)
+        if (type === 'exam') {
+            // ... Exam Logic (Keep existing logic or simplified)
+            // 1. Calculate Collected (From Payments)
+            const paymentMatch = { paymentType: 'exam_fee', status: 'completed' };
+            const payments = await Payment.aggregate([
+                { $match: paymentMatch },
+                {
+                    $lookup: { from: 'students', localField: 'student', foreignField: '_id', as: 'studentInfo' }
+                },
+                { $unwind: "$studentInfo" },
+                {
+                    $match: {
+                        ...(department !== 'all' ? { "studentInfo.department": department } : {}),
+                        ...(year !== 'all' ? { "studentInfo.currentYear": Number(year) } : {})
+                    }
+                },
+                {
+                    $group: {
+                        _id: department !== 'all' && year === 'all' ? "$studentInfo.currentYear" : (department !== 'all' ? "Summary" : "$studentInfo.department"),
+                        collected: { $sum: "$amount" }
+                    }
+                }
+            ]);
+
+            const activeNotifications = await ExamNotification.find({
+                isActive: true, ...(year !== 'all' ? { year: Number(year) } : {})
+            });
+
+            let breakdownData = {};
+            const keys = (groupBy === "$department") ? ['CSE', 'ISE', 'ECE', 'MECH', 'CIVIL'] : [1, 2, 3, 4];
+
+            // Determine breakdown keys based on filter
+            if (department !== 'all' && year === 'all') { // Specific Dept, All Years -> Break by Year
+                [1, 2, 3, 4].forEach(k => breakdownData[k] = { fullyPaid: 0, expected: 0 });
+            } else if (department !== 'all' && year !== 'all') { // Specific Dept, Specific Year -> Single
+                breakdownData["Summary"] = { fullyPaid: 0, expected: 0 };
+            } else { // All Depts -> Break by Dept
+                ['CSE', 'ISE', 'ECE', 'MECH', 'CIVIL'].forEach(k => breakdownData[k] = { fullyPaid: 0, expected: 0 });
+            }
+
+            payments.forEach(p => {
+                if (breakdownData[p._id] !== undefined) breakdownData[p._id].fullyPaid = p.collected;
+                else breakdownData[p._id] = { fullyPaid: p.collected, expected: 0 };
+            });
+
+            for (const notif of activeNotifications) {
+                const eligibleStudents = await Student.aggregate([
+                    { $match: { status: 'active', currentYear: notif.year, ...(department !== 'all' ? { department: department } : {}) } },
+                    {
+                        $group: {
+                            _id: department !== 'all' && year === 'all' ? "$currentYear" : (department !== 'all' ? "Summary" : "$department"),
+                            count: { $sum: 1 }
+                        }
+                    }
+                ]);
+                eligibleStudents.forEach(group => {
+                    if (breakdownData[group._id]) breakdownData[group._id].expected += (group.count * notif.examFeeAmount);
+                    else breakdownData[group._id] = { fullyPaid: 0, expected: (group.count * notif.examFeeAmount) };
+                });
+            }
+
+            const formattedBreakdown = Object.keys(breakdownData).map(key => ({
+                label: (department !== 'all' && year === 'all' && key !== 'Summary') ? `Year ${key}` : key,
+                fullyPaid: breakdownData[key].fullyPaid,
+                pending: Math.max(0, breakdownData[key].expected - breakdownData[key].fullyPaid)
+            }));
+
+            const totalCollected = formattedBreakdown.reduce((acc, curr) => acc + curr.fullyPaid, 0);
+            const totalPending = formattedBreakdown.reduce((acc, curr) => acc + curr.pending, 0);
+
+            return res.json({
+                totalStudents: 0,
+                totalExamCollected: totalCollected,
+                totalExamPending: totalPending,
+                breakdown: formattedBreakdown
+            });
+        }
+
+        // --- Standard Fees Logic ---
+
+        // Define Grouping for Mongo
         if (department !== 'all' && year === 'all') {
-            // Specific Dept, All Years -> Group by Year
             groupBy = "$currentYear";
-            labelPrefix = "Year ";
         } else if (department !== 'all' && year !== 'all') {
-            // Specific Dept, Specific Year -> Single Group (Summary)
-            groupBy = "Summary"; // Constant
+            groupBy = "Summary";
         }
 
         const stats = await Student.aggregate([
             { $match: matchStage },
             {
                 $project: {
-                    department: 1,
-                    currentYear: 1,
+                    department: 1, currentYear: 1,
+                    collegeDue: { $ifNull: ["$collegeFeeDue", 0] },
+                    annualCollege: { $ifNull: ["$annualCollegeFee", 0] },
+                    transportDue: { $ifNull: ["$transportFeeDue", 0] },
+                    annualTransport: { $ifNull: ["$annualTransportFee", 0] },
+                    hostelDue: { $ifNull: ["$hostelFeeDue", 0] },
+                    annualHostel: { $ifNull: ["$annualHostelFee", 0] },
+                    placementDue: { $ifNull: ["$placementFeeDue", 0] },
+                    annualPlacement: { $ifNull: ["$annualPlacementFee", 0] },
                     totalStudentDue: {
                         $add: [
-                            { $ifNull: ["$collegeFeeDue", 0] },
-                            { $ifNull: ["$transportFeeDue", 0] },
-                            { $ifNull: ["$hostelFeeDue", 0] },
-                            { $ifNull: ["$placementFeeDue", 0] }
+                            { $ifNull: ["$collegeFeeDue", 0] }, { $ifNull: ["$transportFeeDue", 0] },
+                            { $ifNull: ["$hostelFeeDue", 0] }, { $ifNull: ["$placementFeeDue", 0] }
                         ]
-                    },
-                    // Pass through individual dues for overall sum
-                    collegeFeeDue: { $ifNull: ["$collegeFeeDue", 0] },
-                    transportFeeDue: { $ifNull: ["$transportFeeDue", 0] },
-                    hostelFeeDue: { $ifNull: ["$hostelFeeDue", 0] },
-                    placementFeeDue: { $ifNull: ["$placementFeeDue", 0] }
+                    }
                 }
             },
             {
                 $facet: {
-                    // Overall Stats
                     overall: [
                         {
                             $group: {
                                 _id: null,
                                 totalStudents: { $sum: 1 },
-                                fullyPaid: { $sum: { $cond: [{ $eq: ["$totalStudentDue", 0] }, 1, 0] } },
-                                pending: { $sum: { $cond: [{ $gt: ["$totalStudentDue", 0] }, 1, 0] } },
-                                totalCollegeDue: { $sum: "$collegeFeeDue" },
-                                totalTransportDue: { $sum: "$transportFeeDue" },
-                                totalHostelDue: { $sum: "$hostelFeeDue" },
-                                totalPlacementDue: { $sum: "$placementFeeDue" },
-                                totalOverallDue: { $sum: "$totalStudentDue" }
+                                totalCollegeDue: { $sum: "$collegeDue" },
+                                totalCollegeAnnual: { $sum: "$annualCollege" },
+                                totalTransportDue: { $sum: "$transportDue" },
+                                totalTransportAnnual: { $sum: "$annualTransport" },
+                                totalHostelDue: { $sum: "$hostelDue" },
+                                totalHostelAnnual: { $sum: "$annualHostel" },
+                                totalPlacementDue: { $sum: "$placementDue" },
+                                totalPlacementAnnual: { $sum: "$annualPlacement" }
                             }
                         }
                     ],
-                    // Dynamic Breakdown
+                    // We still keep the dynamic grouping as a fallback or for 'All Depts' view
                     breakdown: [
                         {
                             $group: {
                                 _id: groupBy,
-                                fullyPaid: { $sum: { $cond: [{ $eq: ["$totalStudentDue", 0] }, 1, 0] } },
-                                pending: { $sum: { $cond: [{ $gt: ["$totalStudentDue", 0] }, 1, 0] } }
+                                // Metrics (Counts or Sums based on requested type? No, raw breakdown usually student counts for summary)
+                                // If type is 'all', we usually want student counts.
+                                // If type is specific, we want sums. 
+                                // Actually, let's just calculate SUMS for everything here to be safe and versatile
+                                fullyPaidCount: { $sum: { $cond: [{ $eq: ["$totalStudentDue", 0] }, 1, 0] } },
+                                pendingCount: { $sum: { $cond: [{ $gt: ["$totalStudentDue", 0] }, 1, 0] } },
+
+                                // Specific Fees
+                                collegeDue: { $sum: "$collegeDue" },
+                                collegePaid: { $sum: { $subtract: ["$annualCollege", "$collegeDue"] } },
+                                transportDue: { $sum: "$transportDue" },
+                                transportPaid: { $sum: { $subtract: ["$annualTransport", "$transportDue"] } },
+                                hostelDue: { $sum: "$hostelDue" },
+                                hostelPaid: { $sum: { $subtract: ["$annualHostel", "$hostelDue"] } },
+                                placementDue: { $sum: "$placementDue" },
+                                placementPaid: { $sum: { $subtract: ["$annualPlacement", "$placementDue"] } }
                             }
                         },
                         { $sort: { _id: 1 } }
@@ -749,44 +803,95 @@ const getAnalytics = async (req, res) => {
             }
         ]);
 
-        const overallStats = stats[0].overall[0] || {
-            totalStudents: 0,
-            fullyPaid: 0,
-            pending: 0,
-            totalCollegeDue: 0,
-            totalTransportDue: 0,
-            totalHostelDue: 0,
-            totalPlacementDue: 0,
-            totalOverallDue: 0
-        };
-
+        const overallStats = stats[0].overall[0] || {};
         const rawBreakdown = stats[0].breakdown || [];
 
-        // Normalize Breakdown for Frontend
-        const formattedBreakdown = rawBreakdown.map(item => {
-            let label = item._id;
+        let formattedBreakdown = [];
 
-            // Format Label based on what we grouped by
-            if (department !== 'all' && year === 'all') {
-                label = `Year ${item._id}`;
-            } else if (department !== 'all' && year !== 'all') {
-                label = `${department} - Year ${year}`;
-            }
+        // --- PIVOT LOGIC: If Specific Department is Selected ---
+        // If user selects a specific department, they usually want to see the FEE STRUCTURE breakdown (Academic vs Hostel etc)
+        // rather than 'Year 1, Year 2' (though that is also valid).
+        // Based on request "fees tabs only shown if all selected", we PIVOT the overall stats to show Component Breakdown.
 
-            return {
-                label: label || 'Unknown', // Standardized Key
-                fullyPaid: item.fullyPaid,
-                pending: item.pending
-            };
-        });
+        if (department !== 'all' && type !== 'exam') {
+            // Pivot the Overall Totals into Rows
+            formattedBreakdown = [
+                {
+                    label: 'Academic',
+                    fullyPaid: Math.max(0, (overallStats.totalCollegeAnnual || 0) - (overallStats.totalCollegeDue || 0)),
+                    pending: overallStats.totalCollegeDue || 0
+                },
+                {
+                    label: 'Transport',
+                    fullyPaid: Math.max(0, (overallStats.totalTransportAnnual || 0) - (overallStats.totalTransportDue || 0)),
+                    pending: overallStats.totalTransportDue || 0
+                },
+                {
+                    label: 'Hostel',
+                    fullyPaid: Math.max(0, (overallStats.totalHostelAnnual || 0) - (overallStats.totalHostelDue || 0)),
+                    pending: overallStats.totalHostelDue || 0
+                },
+                {
+                    label: 'Training',
+                    fullyPaid: Math.max(0, (overallStats.totalPlacementAnnual || 0) - (overallStats.totalPlacementDue || 0)),
+                    pending: overallStats.totalPlacementDue || 0
+                }
+            ];
+        } else {
+            // Standard Grouping (By Department usually)
+            // If type='all' (Student Status), we use counts. If type='college', we use financial.
 
-        res.json({
-            ...overallStats,
-            breakdown: formattedBreakdown
-        });
+            formattedBreakdown = rawBreakdown.map(item => {
+                let label = item._id;
+                if (groupBy === "$currentYear") label = `Year ${item._id}`;
 
+                let paid = 0;
+                let pending = 0;
+
+                if (type === 'all') { // Student Counts
+                    paid = item.fullyPaidCount;
+                    pending = item.pendingCount;
+                } else { // Specific Fees (Financials)
+                    paid = item[`${type}Paid`] || 0;
+                    pending = item[`${type}Due`] || 0;
+                }
+
+                return {
+                    label: label || 'Unknown',
+                    fullyPaid: paid,
+                    pending: pending
+                };
+            });
+        }
+
+        res.json({ ...overallStats, breakdown: formattedBreakdown });
     } catch (error) {
         console.error("Analytics Error:", error);
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// @desc    Get All Students with Filters
+// @route   GET /api/admin/students
+const getStudents = async (req, res) => {
+    try {
+        const { department, year } = req.query;
+        let query = { status: 'active' };
+
+        if (department && department !== 'all') {
+            query.department = department;
+        }
+
+        if (year && year !== 'all') {
+            query.currentYear = Number(year);
+        }
+
+        const students = await Student.find(query)
+            .populate('user', 'name email')
+            .sort({ usn: 1 });
+
+        res.json(students);
+    } catch (error) {
         res.status(500).json({ message: error.message });
     }
 };
@@ -794,15 +899,16 @@ const getAnalytics = async (req, res) => {
 module.exports = {
     createStudent,
     updateStudentFees,
+    setGovFee,
+    getSystemConfig,
+    searchStudent,
     createExamNotification,
     updateExamNotification,
     deleteExamNotification,
     getExamNotifications,
     getDashboardStats,
-    setGovFee,
-    getSystemConfig,
-    searchStudent,
     getStudentsByYear,
     promoteStudents,
-    getAnalytics
+    getAnalytics,
+    getStudents
 };

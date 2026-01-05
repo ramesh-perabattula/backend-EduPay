@@ -34,15 +34,15 @@ const createStudent = async (req, res) => {
 
         // 2. Determine fees
         let initialCollegeFee = 0;
-        if (quota === 'management') {
+        if (quota === 'management' || quota === 'nri') {
             initialCollegeFee = assignedCollegeFee ? Number(assignedCollegeFee) : 0;
         } else {
-            // GOV Quota is strictly 0 as per requirement
-            initialCollegeFee = 0;
-            // Note: If dynamic year fee logic exists, we should technically query that, 
-            // but for now we fallback to global default or 0.
-            // const config = await SystemConfig.findOne({ key: 'default_gov_fee' });
-            // initialCollegeFee = config ? config.value : 0;
+            // GOV Quota defaults to 0, but if assignedCollegeFee is provided (e.g. non-scholarship), use it.
+            if (assignedCollegeFee && Number(assignedCollegeFee) > 0) {
+                initialCollegeFee = Number(assignedCollegeFee);
+            } else {
+                initialCollegeFee = 0;
+            }
         }
 
         // Mutual Exclusivity Check (Hostel vs Transport)

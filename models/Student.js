@@ -5,7 +5,7 @@ const studentSchema = mongoose.Schema({
     usn: { type: String, required: true, unique: true },
     department: { type: String, required: true },
     currentYear: { type: Number, required: true, min: 1, max: 4 }, // "Years 1,2,3,4"
-    quota: { type: String, enum: ['government', 'management'], required: true },
+    quota: { type: String, enum: ['government', 'management', 'nri'], required: true },
     entry: { type: String, enum: ['regular', 'lateral'], required: true },
     status: { type: String, enum: ['active', 'detained', 'dropout'], default: 'active' },
 
