@@ -1,6 +1,8 @@
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 
+const { createLog } = require('../utils/logger');
+
 const generateToken = (id) => {
     return jwt.sign({ id }, process.env.JWT_SECRET, {
         expiresIn: '30d',
@@ -17,6 +19,19 @@ const loginUser = async (req, res) => {
         const user = await User.findOne({ username });
 
         if (user && (await user.matchPassword(password))) {
+            // Audit Log for Non-Student Roles
+            if (user.role !== 'student') {
+                await createLog({
+                    userId: user._id,
+                    role: user.role,
+                    action: 'LOGIN',
+                    targetType: 'User',
+                    targetId: user._id,
+                    details: { username: user.username },
+                    ipAddress: req.ip
+                });
+            }
+
             res.json({
                 _id: user._id,
                 username: user.username,

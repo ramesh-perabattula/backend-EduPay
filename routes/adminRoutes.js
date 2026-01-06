@@ -13,14 +13,18 @@ const {
     searchStudent,
     getStudentsByYear,
     promoteStudents,
-    getAnalytics
+    getAnalytics,
+    getStudents,
+    getLogs
 } = require('../controllers/adminController');
 const { protect, authorize } = require('../middlewares/authMiddleware');
 
 router.get('/config', protect, authorize('admin'), getSystemConfig);
 router.post('/config/gov-fee', protect, authorize('admin'), setGovFee);
+router.get('/logs', protect, authorize('admin'), getLogs); // Audit Logs
 router.get('/students/search', protect, authorize('admin'), searchStudent);
 
+router.get('/students', protect, authorize('admin'), getStudents);
 router.post('/students', protect, authorize('admin'), createStudent);
 router.put('/students/:usn/fees', protect, authorize('admin'), updateStudentFees);
 router.post('/notifications', protect, authorize('admin', 'exam_head'), createExamNotification);
