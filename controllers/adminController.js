@@ -356,14 +356,28 @@ const getSystemConfig = async (req, res) => {
     }
 };
 
-// @desc    Search Student by USN
+// @desc    Search Student by USN or Name
 // @route   GET /api/admin/students/search
 const searchStudent = async (req, res) => {
     try {
         const { query } = req.query;
-        // Search by USN (exact or partial)
-        const student = await Student.findOne({ usn: { $regex: query, $options: 'i' } })
-            .populate('user', 'name email');
+
+        // 1. Search Users by Name matches
+        const userMatches = await User.find({
+            $or: [
+                { name: { $regex: query, $options: 'i' } },
+                { email: { $regex: query, $options: 'i' } } // Optional: also email
+            ]
+        }, '_id');
+        const userIds = userMatches.map(u => u._id);
+
+        // 2. Search Students by USN (partial) OR Matching User IDs
+        const student = await Student.findOne({
+            $or: [
+                { usn: { $regex: query, $options: 'i' } },
+                { user: { $in: userIds } }
+            ]
+        }).populate('user', 'name email');
 
         if (student) {
             res.json(student);
@@ -379,46 +393,10 @@ const searchStudent = async (req, res) => {
 // @route   POST /api/admin/notifications
 const createExamNotification = async (req, res) => {
     try {
-        // Changed to targetBatches (array)
-        const { title, year, targetBatches, semester, examFeeAmount, startDate, endDate, description, examType } = req.body;
-
-        // --- VALIDATION: STRICT BATCH EXISTENCE & HIERARCHY ---
-        if (targetBatches && targetBatches.length > 0) {
-            const dateObj = new Date(startDate);
-            const notifYear = dateObj.getFullYear();
-            // Academic Year Start (Aug-Dec belongs to Year, Jan-May belongs to Prev Year)
-            // Actually, usually academic year is 2025-26.
-            // If Jan 2026, it is part of 2025-26. Start is 2025.
-            const acadYearStart = dateObj.getMonth() < 7 ? notifYear - 1 : notifYear;
-
-            // The 'Regular' batch for Year X starts at: AcadYearStart - (ExamYear - 1)
-            const regularBatchStart = acadYearStart - (year - 1);
-
-            for (const batch of targetBatches) {
-                const batchStart = parseInt(batch.split('-')[0]);
-
-                // 1. Check if Batch exists in reality
-                // Batch starts in Aug `batchStart`. Notif is in `acadYearStart`.
-                // If batchStart > acadYearStart, it's a FUTURE batch.
-                if (batchStart > acadYearStart) {
-                    return res.status(400).json({
-                        message: `Invalid Batch ${batch}: This batch does not exist in ${notifYear}.`
-                    });
-                }
-
-                // 2. Check Hierarchy (Juniors cannot take Senior Exams)
-                // If batchStart > regularBatchStart, it implies they are a Junior batch.
-                if (batchStart > regularBatchStart) {
-                    return res.status(400).json({
-                        message: `Invalid Batch ${batch}: Lower-year students cannot take Year ${year} exams.`
-                    });
-                }
-            }
-        }
-        // -----------------------------------------------------
+        const { title, year, semester, examFeeAmount, startDate, endDate, description, examType } = req.body;
 
         const notification = await ExamNotification.create({
-            title, year, targetBatches, semester, examFeeAmount, startDate, endDate, description, examType,
+            title, year, semester, examFeeAmount, startDate, endDate, description, examType,
             lastDateWithoutFine: endDate, // Set initial fine deadline to endDate
             lateFee: 0
         });
@@ -529,28 +507,9 @@ const getExamNotifications = async (req, res) => {
             const student = await Student.findOne({ user: req.user._id });
             if (student) {
                 const currentYear = student.currentYear;
-                // Match by Year AND Batch (if batch exists in student and notification)
-                // VISIBILITY RULES (Strict Enforcement):
-                // 1. Regular: Notification is explicitly for my batch (targetBatches must contain my batch)
-                // 2. Supplementary: Notification is for a lower year (Exam Year < My Current Year)
-                // 3. Safety: Notification Year MUST be <= My Current Year (Never show future exams)
-
-                query.$and = [
-                    {
-                        $or: [
-                            // Explicit Selection (Regular or Explicit Supple)
-                            { targetBatches: { $in: [student.batch] } },
-
-                            // Implicit Supplementary Rule: If I'm strictly senior to the exam year, I can see it.
-                            // e.g. Year 2 Student sees Year 1 Exam.
-                            { year: { $lt: currentYear } }
-                        ]
-                    },
-                    {
-                        // STRICT SAFETY: Never show an exam meant for a higher year (e.g. Year 1 student cannot see Year 2 exam)
-                        year: { $lte: currentYear }
-                    }
-                ];
+                // VISIBILITY RULES (Year Based Only):
+                // Show exams for current year (Regular) and past years (Supplementary)
+                query.year = { $lte: currentYear };
 
                 if (isActive === undefined) query.isActive = true;
             }
