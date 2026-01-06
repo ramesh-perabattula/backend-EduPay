@@ -4,6 +4,8 @@ const ExamNotification = require('../models/ExamNotification');
 const SystemConfig = require('../models/SystemConfig');
 const LibraryRecord = require('../models/LibraryRecord');
 const Payment = require('../models/Payment');
+const Log = require('../models/Log');
+const { createLog } = require('../utils/logger');
 
 // @desc    Create a new student with user profile
 // @route   POST /api/admin/students
@@ -220,6 +222,20 @@ const updateStudentFees = async (req, res) => {
         if (eligibilityOverride !== undefined) student.eligibilityOverride = eligibilityOverride;
 
         const updatedStudent = await student.save();
+
+        // Audit Log
+        if (req.user) {
+            await createLog({
+                userId: req.user._id,
+                role: req.user.role,
+                action: 'UPDATE_STUDENT_DATA',
+                targetType: 'Student',
+                targetId: student._id,
+                details: { changes: req.body, usn: student.usn },
+                ipAddress: req.ip
+            });
+        }
+
         res.json(updatedStudent);
     } catch (error) {
         console.error("Update Fee Error:", error);
@@ -406,6 +422,20 @@ const createExamNotification = async (req, res) => {
             lastDateWithoutFine: endDate, // Set initial fine deadline to endDate
             lateFee: 0
         });
+
+        // Audit Log
+        if (req.user) {
+            await createLog({
+                userId: req.user._id,
+                role: req.user.role,
+                action: 'CREATE_EXAM_NOTIFICATION',
+                targetType: 'ExamNotification',
+                targetId: notification._id,
+                details: { title, year, amount: examFeeAmount },
+                ipAddress: req.ip
+            });
+        }
+
         res.status(201).json(notification);
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -423,11 +453,30 @@ const updateExamNotification = async (req, res) => {
             return res.status(404).json({ message: 'Notification not found' });
         }
 
-        if (endDate) notification.endDate = endDate;
-        if (lateFee !== undefined) notification.lateFee = Number(lateFee);
         if (isActive !== undefined) notification.isActive = isActive;
 
+        // Capture Old Values for Diff
+        const oldValues = {
+            endDate: notification.endDate,
+            lateFee: notification.lateFee,
+            isActive: notification.isActive
+        };
+
         const updatedNotification = await notification.save();
+
+        // Audit Log
+        if (req.user) {
+            await createLog({
+                userId: req.user._id,
+                role: req.user.role,
+                action: 'UPDATE_EXAM_NOTIFICATION',
+                targetType: 'ExamNotification',
+                targetId: notification._id,
+                details: { old: oldValues, new: req.body },
+                ipAddress: req.ip
+            });
+        }
+
         res.json(updatedNotification);
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -445,6 +494,20 @@ const deleteExamNotification = async (req, res) => {
         }
 
         await notification.deleteOne();
+
+        // Audit Log
+        if (req.user) {
+            await createLog({
+                userId: req.user._id,
+                role: req.user.role,
+                action: 'DELETE_EXAM_NOTIFICATION',
+                targetType: 'ExamNotification',
+                targetId: req.params.id,
+                details: { title: notification.title, year: notification.year },
+                ipAddress: req.ip
+            });
+        }
+
         res.json({ message: 'Notification removed' });
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -913,6 +976,39 @@ const getAnalytics = async (req, res) => {
             });
         });
 
+        // --- EXAM ANALYTICS: Real-Time Calculation ---
+        const notifications = await ExamNotification.find({});
+        let calculatedExamPending = 0;
+
+        // Get all completed exam payments
+        // We use aggregation for speed
+        const paymentStats = await Payment.aggregate([
+            { $match: { paymentType: 'exam_fee', status: 'completed' } },
+            { $group: { _id: "$examNotificationId", count: { $sum: 1 }, totalAmount: { $sum: "$amount" } } }
+        ]);
+
+        const totalExamCollectedVal = paymentStats.reduce((sum, p) => sum + p.totalAmount, 0);
+
+        for (const notif of notifications) {
+            if (notif.targetBatches && notif.targetBatches.length > 0) {
+                // Count Eligible Students for this notification
+                const eligibleCount = await Student.countDocuments({ batch: { $in: notif.targetBatches }, status: 'active' });
+
+                // Find payment count for this specific notification from stats
+                // Note: _id in aggregation might be ObjectId, notif._id is ObjectId. Key matching should work or use string.
+                const payStat = paymentStats.find(p => p._id && p._id.toString() === notif._id.toString());
+                const paidCount = payStat ? payStat.count : 0;
+
+                const remaining = Math.max(0, eligibleCount - paidCount);
+
+                // Real-time Fee (Base + Penalty)
+                const currentFee = notif.examFeeAmount + (notif.lateFee || 0);
+
+                calculatedExamPending += remaining * currentFee;
+            }
+        }
+        // ---------------------------------------------
+
         res.json({
             totalStudents: overallStats.count || 0,
 
@@ -928,8 +1024,10 @@ const getAnalytics = async (req, res) => {
             totalPlacementDue: overallStats.totalPlacementDue || 0,
             totalPlacementAnnual: overallStats.totalPlacementAnnual || 0,
 
-            totalExamCollected: totalCollected,
-            totalExamPending: totalPending,
+            // Overridden with Real-Time Data
+            totalExamCollected: totalExamCollectedVal,
+            totalExamPending: calculatedExamPending,
+
             breakdown: formattedBreakdown
         });
 
@@ -960,6 +1058,34 @@ const getStudents = async (req, res) => {
     }
 };
 
+// @desc    Get Audit Logs
+// @route   GET /api/admin/logs
+const getLogs = async (req, res) => {
+    try {
+        const { role, action, targetType, startDate, endDate } = req.query;
+        let query = {};
+
+        if (role) query.role = role;
+        if (action) query.action = { $regex: action, $options: 'i' };
+        if (targetType) query.targetType = targetType;
+
+        if (startDate || endDate) {
+            query.createdAt = {};
+            if (startDate) query.createdAt.$gte = new Date(startDate);
+            if (endDate) query.createdAt.$lte = new Date(endDate);
+        }
+
+        const logs = await Log.find(query)
+            .populate('user', 'name email username')
+            .sort({ createdAt: -1 })
+            .limit(100);
+
+        res.json(logs);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
 module.exports = {
     createStudent,
     searchStudent,
@@ -975,5 +1101,6 @@ module.exports = {
     getStudentsByYear,
     promoteStudents,
     getAnalytics,
-    getStudents
+    getStudents,
+    getLogs
 };

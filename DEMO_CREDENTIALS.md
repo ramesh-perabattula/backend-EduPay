@@ -9,14 +9,14 @@
 | Role | Username | Description |
 |---|---|---|
 | **System Admin** | `admin` | Full access to System Admin dashboard |
-| **Principal** | *(Not Found)* | -- |
+| **Principal** | `principal` | Full access to Principal dashboard |
 | **Exam Section Head** | `exam_head` | Full access to Exam Section Head dashboard |
 | **Registrar (Enrollment)** | `registrar` | Full access to Registrar (Enrollment) dashboard |
-| **Admission Officer** | *(Not Found)* | -- |
-| **Transport Dept** | *(Not Found)* | -- |
+| **Admission Officer** | `admission_officer` | Full access to Admission Officer dashboard |
+| **Transport Dept** | `transport` | Full access to Transport Dept dashboard |
 | **Librarian** | `librarian` | Full access to Librarian dashboard |
-| **Placement Officer** | *(Not Found)* | -- |
-| **Hostel Manager** | *(Not Found)* | -- |
+| **Placement Officer** | `placement_officer` | Full access to Placement Officer dashboard |
+| **Hostel Manager** | `hostel_manager` | Full access to Hostel Manager dashboard |
 
 ---
 
