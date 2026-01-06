@@ -8,7 +8,7 @@ const SystemConfig = require('../models/SystemConfig');
 const createStudent = async (req, res) => {
     try {
         const {
-            username, password, name, department, batch, currentYear,
+            username, password, name, department, currentYear,
             quota, entry, email,
             transportOpted, // Boolean
             transportRoute, // String - Added
@@ -166,7 +166,7 @@ const createStudent = async (req, res) => {
             user: user._id,
             usn: username,
             department,
-            batch,
+            // batch, // Removed
             currentYear: currentYearNum,
             quota,
             entry,

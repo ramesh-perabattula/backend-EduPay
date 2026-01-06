@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const examNotificationSchema = mongoose.Schema({
     title: { type: String, required: true },
     year: { type: Number, required: true }, // Target Year (1, 2, 3, 4)
-    targetBatches: { type: [String], required: true }, // Target Batches (Array)
+    // targetBatches: { type: [String] }, // Removed Batch logic
     semester: { type: Number }, // Optional specific semester
     examFeeAmount: { type: Number, required: true },
     startDate: { type: Date, required: true },
