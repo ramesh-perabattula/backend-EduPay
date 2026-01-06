@@ -372,15 +372,17 @@ const searchStudent = async (req, res) => {
         const userIds = userMatches.map(u => u._id);
 
         // 2. Search Students by USN (partial) OR Matching User IDs
-        const student = await Student.findOne({
+        const students = await Student.find({
             $or: [
                 { usn: { $regex: query, $options: 'i' } },
                 { user: { $in: userIds } }
             ]
-        }).populate('user', 'name email');
+        })
+            .populate('user', 'name email model_img')
+            .limit(20);
 
-        if (student) {
-            res.json(student);
+        if (students.length > 0) {
+            res.json(students);
         } else {
             res.status(404).json({ message: 'Student not found' });
         }
