@@ -50,4 +50,9 @@ const studentSchema = mongoose.Schema({
     // Logic will primarily calculate this dynamically
 }, { timestamps: true });
 
+// Add Indexes for performance
+studentSchema.index({ user: 1 });
+studentSchema.index({ department: 1, currentYear: 1 }); // Compound index for filtering
+studentSchema.index({ status: 1 });
+
 module.exports = mongoose.model('Student', studentSchema);
