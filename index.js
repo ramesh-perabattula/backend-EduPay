@@ -4,8 +4,8 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
-const mongoSanitize = require('express-mongo-sanitize');
-const xss = require('xss-clean');
+// const mongoSanitize = require('express-mongo-sanitize'); // Disabled due to Express 5 compatibility issue
+// const xss = require('xss-clean'); // Disabled due to Express 5 compatibility issue
 const hpp = require('hpp');
 const compression = require('compression');
 const path = require('path');
@@ -35,12 +35,34 @@ if (process.env.NODE_ENV === 'development') {
 app.use(express.json({ limit: '10kb' })); // Limit body size to prevent DoS
 
 // Sanitize Data
-app.use(mongoSanitize()); // Prevent NoSQL injection
-app.use(xss()); // Prevent XSS attacks
+// NOTE: express-mongo-sanitize & xss-clean currently conflict with Express 5 (req.query is read-only).
+// If needed later, re-enable with compatible versions or custom middleware.
+// app.use(mongoSanitize()); // Prevent NoSQL injection
+// app.use(xss()); // Prevent XSS attacks
 app.use(hpp()); // Prevent HTTP Parameter Pollution
 
-// Enable CORS
-app.use(cors());
+// Enable CORS (explicitly allow Vite dev origin)
+const FRONTEND_ORIGIN = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+app.use(cors({
+    origin: FRONTEND_ORIGIN,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
+}));
+
+// Extra CORS headers + handle OPTIONS quickly
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', FRONTEND_ORIGIN);
+    res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.header('Access-Control-Allow-Credentials', 'true');
+
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(204);
+    }
+    next();
+});
 
 // Compression
 app.use(compression());

@@ -20,6 +20,8 @@ const studentSchema = mongoose.Schema({
     transportFeeDue: { type: Number, default: 0 },
     hostelFeeDue: { type: Number, default: 0 }, // Added Hostel Fee Due
     placementFeeDue: { type: Number, default: 0 }, // Added Placement Fee Due
+    libraryFeeDue: { type: Number, default: 0 }, // Added Library Fee Due
+    otherFeeDue: { type: Number, default: 0 }, // Added Other Fee Due
     lastSemDues: { type: Number, default: 0 },
 
     // Persistent Annual Fee Structure (Base Fee for subsequent years)
@@ -32,7 +34,7 @@ const studentSchema = mongoose.Schema({
     feeRecords: [{
         year: { type: Number, required: true },
         semester: { type: Number, required: true },
-        feeType: { type: String, enum: ['college', 'transport', 'other', 'placement', 'hostel'], required: true }, // Added hostel
+        feeType: { type: String, enum: ['college', 'transport', 'other', 'placement', 'hostel', 'library'], required: true }, // Added library
         amountDue: { type: Number, required: true },
         amountPaid: { type: Number, default: 0 },
         status: { type: String, enum: ['pending', 'partial', 'paid'], default: 'pending' },
