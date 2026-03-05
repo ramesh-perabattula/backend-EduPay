@@ -96,6 +96,7 @@ app.use('/api/placement', require('./routes/placementRoutes'));
 app.use('/api/hostel', require('./routes/hostelRoutes'));
 app.use('/api/admission', require('./routes/admissionRoutes'));
 app.use('/api/exam-head', require('./routes/examHeadRoutes'));
+app.use('/api/attendance', require('./routes/attendanceRoutes'));
 
 // Make uploads folder static
 app.use('/uploads', express.static(path.join(__dirname, '/uploads')));

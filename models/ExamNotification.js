@@ -18,7 +18,7 @@ const examNotificationSchema = mongoose.Schema({
     }],
     examCode: { type: String },
     examName: { type: String },
-    examType: { type: String, enum: ['regular', 'supplementary'], default: 'regular' },
+    examType: { type: String, enum: ['regular', 'supplementary', 'mid'], default: 'regular' },
     isActive: { type: Boolean, default: true }
 }, { timestamps: true });
 
