@@ -107,8 +107,7 @@ const createOrder = async (req, res) => {
                             duplicateSubjects.push(code);
                             return;
                         }
-                        const master = subjectMap.get(code);
-                        totalCalc += Number(master.fee) || 0;
+                        // We no longer sum individual fees here
                     });
 
                     if (invalidSubjects.length > 0) {
@@ -122,6 +121,13 @@ const createOrder = async (req, res) => {
                             message: `You have already paid for: ${duplicateSubjects.join(', ')}`
                         });
                     }
+
+                    // Calculate tiered fee based on number of valid selected subjects
+                    const numSubjects = selectedSubjects.length;
+                    if (numSubjects === 1) totalCalc = 800;
+                    else if (numSubjects === 2) totalCalc = 1200;
+                    else if (numSubjects === 3) totalCalc = 1800;
+                    else if (numSubjects >= 4) totalCalc = 2500;
 
                     // Add late fee once per transaction if in late window
                     totalCalc += lateFee;

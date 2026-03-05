@@ -571,6 +571,33 @@ const getExamNotifications = async (req, res) => {
     }
 };
 
+// @desc    Get Stats for Exam Dashboard
+// @route   GET /api/admin/exam-dashboard-stats
+const getExamDashboardStats = async (req, res) => {
+    try {
+        const activeNotifications = await ExamNotification.countDocuments({ isActive: true });
+
+        // Count distinct students who made exam payments
+        const distinctStudents = await Payment.distinct('student', { paymentType: 'exam_fee', status: 'completed' });
+        const studentsApplied = distinctStudents.length;
+
+        // Sum of all exam fees collected
+        const feesCollectedAgg = await Payment.aggregate([
+            { $match: { paymentType: 'exam_fee', status: 'completed' } },
+            { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]);
+        const feesCollected = feesCollectedAgg.length > 0 ? feesCollectedAgg[0].total : 0;
+
+        res.json({
+            activeNotifications,
+            studentsApplied,
+            feesCollected
+        });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
 // @desc    Get Stats for Dashboard
 // @route   GET /api/admin/stats
 const getDashboardStats = async (req, res) => {
@@ -1106,6 +1133,7 @@ module.exports = {
     // Verified: updateExamNotification does not allow editing targetBatches, so no validation needed here.
     getExamNotifications,
     getDashboardStats,
+    getExamDashboardStats,
     getStudentsByYear,
     promoteStudents,
     getAnalytics,
